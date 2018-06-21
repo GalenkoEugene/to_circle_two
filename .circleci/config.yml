@@ -4,7 +4,7 @@ jobs:
     parallelism: 2
     working_directory: ~/campsited
     docker:
-      - image: circleci/ruby:2.3-node-browsers
+      - image: circleci/ruby:2.3.7-node-browsers
         environment:
           BUNDLE_JOBS: 3
           BUNDLE_RETRY: 3
@@ -12,25 +12,33 @@ jobs:
           PGHOST: 127.0.0.1
           PGUSER: circleci-demo-ruby
           RAILS_ENV: test
-      - image: circleci/postgres:9.5-alpine
+      - image: circleci/postgres:9.6.2-alpine
         environment:
           POSTGRES_USER: circleci-demo-ruby
           POSTGRES_DB: rails_blog
           POSTGRES_PASSWORD: ""
-      - image: selenium/standalone-chrome:latest
+
     steps:
       - checkout # special step to check out source code to working directory
+      # - run:
+      #     name: Install latest version of Chrome
+      #     command: |
+      #       wget -N https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -P ~/
+      #       sudo dpkg -i --force-depends ~/google-chrome-stable_current_amd64.deb
+      #       sudo apt-get -f install -y
+      #       sudo dpkg -i --force-depends ~/google-chrome-stable_current_amd64.deb
+      #       sudo rm /usr/local/bin/chromedriver
 
       - restore_cache:
           keys:
-            - rails-demo-bundle-v2-{{ checksum "Gemfile.lock" }}
+            - campsited-{{ checksum "Gemfile.lock" }}
 
       - run:
           name: Bundle Install
           command: bundle check || bundle install --jobs=4 --retry=3 --path vendor/bundle
 
       - save_cache:
-          key: rails-demo-bundle-v2-{{ checksum "Gemfile.lock" }}
+          key: campsited-{{ checksum "Gemfile.lock" }}
           paths:
             - vendor/bundle
 
@@ -38,21 +46,9 @@ jobs:
           name: Wait for DB
           command: dockerize -wait tcp://localhost:5432 -timeout 1m
 
-      - run:
-        name: Generate database.yml
-          command: |
-            mkdir -p config
-            echo 'test:
-              adapter: postgresql
-              database: circle_ruby_test
-              username: ubuntu
-              host: localhost
-            ' > config/database.yml
-      - run: export RAILS_ENV="test"
-             export RACK_ENV="test"
-             bundle exec rake db:create db:structure:load --trace
+      - run: cp config/database.yml.sample config/database.yml
+      - run: bundle exec rake db:create db:schema:load --trace
 
-      # run tests!
       - run:
           name: run tests
           command: |
@@ -60,7 +56,6 @@ jobs:
             TEST_FILES="$(circleci tests glob "spec/**/*_spec.rb" | circleci tests split --split-by=timings)"
 
             bundle exec rspec --format progress \
-                            --format RspecJunitFormatter \
                             --out /tmp/test-results/rspec.xml \
                             --format progress \
                             $TEST_FILES
